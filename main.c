@@ -38,9 +38,18 @@
 /* max of 9 players excluding server */
 #define MAX_SUBS 9
 
-#define ECHO_REQUEST 8
 #define IPV4_ADDR_OCTETS 4
 #define MAC_ADDR_OCTETS 6
+
+/* protocol numbers */
+enum ip_protocols {
+	ICMP = 1,
+	UDP = 17
+};
+
+enum icmp_types {
+	ECHO_REQUEST = 8
+};
 
 /* Ethernet II header */
 struct ether_header_t {
@@ -207,7 +216,7 @@ void packet_handler(uint8_t *param, const struct pcap_pkthdr *header, const uint
 	struct icmp_header_t *icmp = (struct icmp_header_t *)((uint8_t *)ip + ip_len);
 
 	/* proceeed only if: UDP or (ICMP echo request and num_subs < MAX_SUBS) */
-	if (!(ip->proto == 17 || (ip->proto == 1 && icmp->type == ECHO_REQUEST && num_subs < MAX_SUBS)))
+	if (!(ip->proto == UDP || (ip->proto == ICMP && icmp->type == ECHO_REQUEST && num_subs < MAX_SUBS)))
 		return;
 
 	/* frame header */
@@ -220,8 +229,7 @@ void packet_handler(uint8_t *param, const struct pcap_pkthdr *header, const uint
 	/* convert the timestamp to readable format */
 	strftime(timestr, sizeof timestr, "%H:%M:%S", ltime);
 
-	/* UDP is protocol 17 */
-	if (ip->proto == 17) {
+	if (ip->proto == UDP) {
 		/* Use a VLA to hold the data of the modified packet */
 		uint8_t new_pkt_data[header->len];
 
