@@ -28,6 +28,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <signal.h>
 #include <string.h>
 #include <time.h>
 #include <stdint.h>
@@ -80,6 +81,10 @@ static pcap_t *capture;
 /* function declarations */
 pcap_if_t *select_dev(pcap_if_t *alldevs);
 void packet_handler(uint8_t *param, const struct pcap_pkthdr *header, const uint8_t *pkt_data);
+void break_loop(int param)
+{
+	pcap_breakloop(capture);
+}
 
 
 int main(void)
@@ -110,8 +115,8 @@ int main(void)
 
 	if (capture == NULL) {
 		fprintf(stderr, "\nUnable to open the capture. It is not supported by libpcap/WinPcap.\n");
-		ret = -1;
-		goto free_alldevs;
+		pcap_freealldevs(alldevs);
+		return -1;
 	}
 
 	/* Check the link layer. We support only Ethernet for simplicity. */
@@ -139,6 +144,11 @@ int main(void)
 	}
 
 	printf("\nListening on %s...\n", (dev->description) ? dev->description : dev->name);
+	/* alldevs is no longer needed at this point */
+	pcap_freealldevs(alldevs);
+
+	/* Make Ctrl-C break the loop so that we can still cleanup before terminating */
+	signal(SIGINT, break_loop);
 
 	/* start the capture */
 	pcap_loop(capture, 0, packet_handler, NULL);
@@ -146,8 +156,6 @@ int main(void)
 	/* cleanup */
 close_handle:
 	pcap_close(capture);
-free_alldevs:
-	pcap_freealldevs(alldevs);
 
 	return ret;
 }
@@ -167,7 +175,7 @@ pcap_if_t *select_dev(pcap_if_t *alldevs)
 
 	int sel_dev_num = 0;
 	uint8_t error;
-	/* Check if the user specified a valid capture */
+	/* Check if the user specified a valid device */
 	do {
 		printf("Enter the interface number (1-%d): ", dev_num);
 		scanf("%d", &sel_dev_num); // too lazy to change this :P
