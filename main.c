@@ -1,7 +1,29 @@
 /**
- * Originally based on udpdump.c example from WinPcap
+ * war3relay - relays Warcraft III server broadcast to specific hosts on the LAN
  *
- * When using GCC, use C99 with GNU extensions: -std=gnu99
+ * Copyright (C) 2011  Darwin M. Bautista <djclue917@gmail.com>
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ *
+ * NOTES:
+ *   1. Device selection and program flow are inspired by WinPcap examples
+ *   2. When using GCC, use C99 with GNU extensions: -std=gnu99
  */
 
 #include <stdio.h>
@@ -32,7 +54,7 @@ struct ip_header_t {
 	uint8_t	ds;			// DiffServ code point
 	uint16_t len;			// Total length
 	uint16_t id;			// Identification
-	uint16_t flags_off;		// Flags (3 bits) + Fragment offset (13 bits)
+	uint16_t flags_fo;		// Flags (3 bits) + Fragment offset (13 bits)
 	uint8_t	ttl;			// Time to live
 	uint8_t	proto;			// Protocol
 	uint16_t checksum;			// Header checksum
