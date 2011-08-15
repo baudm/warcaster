@@ -81,13 +81,7 @@ int main(void)
 	pcap_if_t *dev = select_dev(alldevs);
 
 	/* Open the capture */
-	capture = pcap_open_live(dev->name,	// name of the device
-							 65535,			// portion of the packet to capture.
-							 // 65536 grants that the whole packet will be captured on all the MACs.
-							 1,				// promiscuous mode (nonzero means promiscuous)
-							 1000,			// read timeout
-							 errbuf			// error buffer
-							);
+	capture = pcap_open_live(dev->name, 65535, 1, 1000, errbuf);
 
 	if (strlen(errbuf))
 		fprintf(stderr, "\nWARNING: %s\n", errbuf);
@@ -149,7 +143,7 @@ pcap_if_t *select_dev(pcap_if_t *alldevs)
 		printf("\n");
 	}
 
-	int sel_dev_num;
+	int sel_dev_num = 0;
 	uint8_t error;
 	/* Check if the user specified a valid capture */
 	do {
@@ -168,7 +162,7 @@ pcap_if_t *select_dev(pcap_if_t *alldevs)
 	return dev;
 }
 
-void copy_octets(uint8_t dst[], uint8_t src[], uint8_t octets)
+void copy_octets(uint8_t dst[], const uint8_t src[], uint8_t octets)
 {
 	uint8_t i;
 
@@ -176,7 +170,7 @@ void copy_octets(uint8_t dst[], uint8_t src[], uint8_t octets)
 		dst[i] = src[i];
 }
 
-int equal_octets(uint8_t a[], uint8_t b[], uint8_t octets)
+int equal_octets(const uint8_t a[], const uint8_t b[], uint8_t octets)
 {
 	uint8_t i, matches = 0;
 
@@ -218,13 +212,20 @@ void packet_handler(uint8_t *param, const struct pcap_pkthdr *header, const uint
 
 	/* UDP is protocol 17 */
 	if (ip->proto == 17) {
+		/* Use a VLA to hold the data of the modified packet */
+		uint8_t new_pkt_data[header->len];
+
+		/* create a copy of the captured packet because it's not supposed to be modified */
+		memcpy(new_pkt_data, pkt_data, header->len);
+		ether = (struct ether_header_t *)new_pkt_data;
+
 		printf("%s\tSeen war3 broadcast\n", timestr);
 		/* Send the war3 broadcast to all subscribers */
 		for (i = 0; i < num_subs; i++) {
 			/* Set destination MAC address */
 			copy_octets(ether->dst, subscribers[i], MAC_ADDR_OCTETS);
 			/* Inject the modified packet back to the device */
-			pcap_sendpacket(capture, pkt_data, header->len);
+			pcap_sendpacket(capture, new_pkt_data, header->len);
 		}
 	} else {
 		/* Loop through all the existing subscriber MACs and check for duplicates */
