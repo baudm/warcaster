@@ -1,3 +1,9 @@
+/**
+ * Originally based on udpdump.c example from WinPcap
+ *
+ * When using GCC, use C99 with GNU extensions: -std=gnu99
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -6,198 +12,232 @@
 
 #include <pcap/pcap.h>
 
-// max of 9 players excluding server
+/* max of 9 players excluding server */
 #define MAX_SUBS 9
+
 #define ECHO_REQUEST 8
-#define IP_ADDR_OCTETS 4
+#define IPV4_ADDR_OCTETS 4
 #define MAC_ADDR_OCTETS 6
 
+/* Ethernet II header */
 struct ether_header_t {
-    uint8_t dmac[MAC_ADDR_OCTETS];
-    uint8_t smac[MAC_ADDR_OCTETS];
-    uint16_t type;
+	uint8_t dst[MAC_ADDR_OCTETS];
+	uint8_t src[MAC_ADDR_OCTETS];
+	uint16_t type;
 };
 
 /* IPv4 header */
 struct ip_header_t {
-	uint8_t	ver_ihl;		// Version (4 bits) + Internet header length (4 bits)
-	uint8_t	tos;			// Type of service
-	uint16_t tlen;			// Total length
-	uint16_t identification; // Identification
-	uint16_t flags_fo;		// Flags (3 bits) + Fragment offset (13 bits)
+	uint8_t	ver_ihl;		// Version (4 bits) + Header length (4 bits)
+	uint8_t	ds;			// DiffServ code point
+	uint16_t len;			// Total length
+	uint16_t id;			// Identification
+	uint16_t flags_off;		// Flags (3 bits) + Fragment offset (13 bits)
 	uint8_t	ttl;			// Time to live
 	uint8_t	proto;			// Protocol
-	uint16_t crc;			// Header checksum
-	uint8_t saddr[IP_ADDR_OCTETS];		// Source address
-	uint8_t daddr[IP_ADDR_OCTETS];		// Destination address
+	uint16_t checksum;			// Header checksum
+	uint8_t src[IPV4_ADDR_OCTETS];		// Source address
+	uint8_t dst[IPV4_ADDR_OCTETS];		// Destination address
 	uint32_t op_pad;			// Option + Padding
 };
 
+/* ICMP header */
 struct icmp_header_t {
-    uint8_t type;
-    uint8_t code;
-    uint16_t checksum;
+	uint8_t type;
+	uint8_t code;
+	uint16_t checksum;
 };
 
-/* prototype of the packet handler */
+/*
+ * Use a global variable for the capture handle
+ * because there's no way of passing this handle
+ * to the callback function (packet_handler).
+ */
+static pcap_t *capture;
+
+/* function declarations */
+pcap_if_t *select_dev(pcap_if_t *alldevs);
 void packet_handler(uint8_t *param, const struct pcap_pkthdr *header, const uint8_t *pkt_data);
-static pcap_t *adhandle;
+
 
 int main(void)
 {
-	pcap_if_t *alldevs, *dev;
-	int dev_num = 0, sel_dev_num;
-	char errbuf[PCAP_ERRBUF_SIZE] = "";
-
-	char packet_filter[] = "(udp src and dst port 6112 and ether dst FF:FF:FF:FF:FF:FF) or icmp";
-	struct bpf_program fcode;
-
 	int ret = 0;
+
+	pcap_if_t *alldevs;
+	char errbuf[PCAP_ERRBUF_SIZE] = "";
 
 	/* Retrieve the device list */
 	if (pcap_findalldevs(&alldevs, errbuf) == -1) {
 		fprintf(stderr, "Error in pcap_findalldevs: %s\n", errbuf);
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
 
 	if (alldevs == NULL) {
-		printf("\nNo interfaces found! Make sure WinPcap is installed.\n");
+		printf("\nNo interfaces found! Make sure libpcap/WinPcap is installed.\n");
 		return -1;
 	}
 
-	/* Print the list */
-	for (dev = alldevs; dev != NULL; dev = dev->next)
-		printf("%d. %s (%s)\n", ++dev_num, dev->name, dev->description);
+	pcap_if_t *dev = select_dev(alldevs);
 
-    uint8_t error;
-    /* Check if the user specified a valid adapter */
-    do {
-        printf("Enter the interface number (1-%d): ", dev_num);
-        scanf("%d", &sel_dev_num);
-        error = sel_dev_num < 1 || sel_dev_num > dev_num;
-        if (error)
-            printf("\nAdapter number out of range.\n");
-    } while (error);
-
-	/* Jump to the selected adapter */
-	for (dev = alldevs, dev_num = 0; dev_num < sel_dev_num - 1; dev = dev->next, dev_num++);
-
-	/* Open the adapter */
-	adhandle = pcap_open_live(dev->name,	// name of the device
+	/* Open the capture */
+	capture = pcap_open_live(dev->name,	// name of the device
 							 65535,			// portion of the packet to capture.
-											// 65536 grants that the whole packet will be captured on all the MACs.
+							 // 65536 grants that the whole packet will be captured on all the MACs.
 							 1,				// promiscuous mode (nonzero means promiscuous)
 							 1000,			// read timeout
 							 errbuf			// error buffer
-							 );
+							);
 
-    if (strlen(errbuf))
-        fprintf(stderr, "\nWARNING: %s\n", errbuf);
+	if (strlen(errbuf))
+		fprintf(stderr, "\nWARNING: %s\n", errbuf);
 
-	if (adhandle == NULL) {
-		fprintf(stderr, "\nUnable to open the adapter.  is not supported by WinPcap\n");
+	if (capture == NULL) {
+		fprintf(stderr, "\nUnable to open the capture. It is not supported by libpcap/WinPcap.\n");
 		ret = -1;
 		goto free_alldevs;
 	}
 
 	/* Check the link layer. We support only Ethernet for simplicity. */
-	if (pcap_datalink(adhandle) != DLT_EN10MB) {
+	if (pcap_datalink(capture) != DLT_EN10MB) {
 		fprintf(stderr, "\nThis program works only on Ethernet networks.\n");
 		ret = -1;
 		goto close_handle;
 	}
 
-	//compile the filter
-	if (pcap_compile(adhandle, &fcode, packet_filter, 1, 0) < 0) {
+	char packet_filter[] = "(udp src and dst port 6112 and ether dst FF:FF:FF:FF:FF:FF) or icmp";
+	struct bpf_program fcode;
+
+	/* compile the filter */
+	if (pcap_compile(capture, &fcode, packet_filter, 1, 0) < 0) {
 		fprintf(stderr, "\nUnable to compile the packet filter. Check the syntax.\n");
 		ret = -1;
 		goto close_handle;
 	}
 
-	//set the filter
-	if (pcap_setfilter(adhandle, &fcode) < 0) {
+	/* set the filter */
+	if (pcap_setfilter(capture, &fcode) < 0) {
 		fprintf(stderr, "\nError setting the filter.\n");
 		ret = -1;
 		goto close_handle;
 	}
 
-	printf("\nListening on %s...\n", dev->description);
+	printf("\nListening on %s...\n", (dev->description) ? dev->description : dev->name);
 
 	/* start the capture */
-	pcap_loop(adhandle, 0, packet_handler, NULL);
+	pcap_loop(capture, 0, packet_handler, NULL);
 
+	/* cleanup */
 close_handle:
-    pcap_close(adhandle);
+	pcap_close(capture);
 free_alldevs:
 	pcap_freealldevs(alldevs);
 
 	return ret;
 }
 
+pcap_if_t *select_dev(pcap_if_t *alldevs)
+{
+	pcap_if_t *dev;
+	int dev_num = 0;
+
+	/* Print the list */
+	for (dev = alldevs; dev != NULL; dev = dev->next) {
+		printf("%d. %s", ++dev_num, dev->name);
+		if (dev->description)
+			printf(" (%s)", dev->description);
+		printf("\n");
+	}
+
+	int sel_dev_num;
+	uint8_t error;
+	/* Check if the user specified a valid capture */
+	do {
+		printf("Enter the interface number (1-%d): ", dev_num);
+		scanf("%d", &sel_dev_num); // too lazy to change this :P
+		error = sel_dev_num < 1 || sel_dev_num > dev_num;
+		if (error)
+			printf("\nAdapter number out of range.\n");
+	} while (error);
+
+	/* Jump to the selected capture */
+	dev = alldevs;
+	for (dev_num = 1; dev_num < sel_dev_num; dev_num++)
+		dev = dev->next;
+
+	return dev;
+}
+
+void copy_octets(uint8_t dst[], uint8_t src[], uint8_t octets)
+{
+	uint8_t i;
+
+	for (i = 0; i < octets; i++)
+		dst[i] = src[i];
+}
+
+int equal_octets(uint8_t a[], uint8_t b[], uint8_t octets)
+{
+	uint8_t i, matches = 0;
+
+	for (i = 0; i < octets; i++) {
+		if (a[i] == b[i])
+			matches++;
+	}
+
+	return matches == octets;
+}
+
 /* Callback function invoked by libpcap for every incoming packet */
 void packet_handler(uint8_t *param, const struct pcap_pkthdr *header, const uint8_t *pkt_data)
 {
+	/* array of subscribers and the current number of subscribers */
 	static uint8_t subscribers[MAC_ADDR_OCTETS][MAX_SUBS];
-    static uint8_t subs_len = 0;
+	static uint8_t num_subs = 0;
 
-    struct ip_header_t *ip;
-    uint32_t ip_len;
-	struct icmp_header_t *icmp;
+	/* get pointer to the IP header */
+	struct ip_header_t *ip = (struct ip_header_t *)(pkt_data + sizeof(struct ether_header_t));
+	/* calculate the IP header length */
+	uint32_t ip_len = (ip->ver_ihl & 0xF) * 4;
+	/* get pointer to the ICMP header (ICMP packets only) */
+	struct icmp_header_t *icmp = (struct icmp_header_t *)((uint8_t *)ip + ip_len);
 
-	/* retrieve the position of the ip header */
-	ip = (struct ip_header_t *)(pkt_data + sizeof(struct ether_header_t));
-	/* retrieve the IP header length */
-    ip_len = (ip->ver_ihl & 0xF) * 4;
-    icmp = (struct icmp_header_t *)((uint8_t *)ip + ip_len);
+	/* proceeed only if: UDP or (ICMP echo request and num_subs < MAX_SUBS) */
+	if (!(ip->proto == 17 || (ip->proto == 1 && icmp->type == ECHO_REQUEST && num_subs < MAX_SUBS)))
+		return;
 
-    // execute only if: UDP or (ICMP echo request and subs_len < MAX_SUBS)
-    if (!(ip->proto == 17 || (icmp->type == ECHO_REQUEST && subs_len < MAX_SUBS)))
-        return;
+	/* frame header */
+	struct ether_header_t *ether = (struct ether_header_t *)pkt_data;
+	uint8_t i;
 
-    // frame header
-    struct ether_header_t *ether = (struct ether_header_t *)pkt_data;
-    uint8_t i ,j;
+	struct tm *ltime = localtime(&header->ts.tv_sec);
+	char timestr[16];
 
-    struct tm *ltime;
-    char timestr[16];
+	/* convert the timestamp to readable format */
+	strftime(timestr, sizeof timestr, "%H:%M:%S", ltime);
 
-    /* convert the timestamp to readable format */
-    ltime = localtime(&header->ts.tv_sec);
-    strftime(timestr, sizeof timestr, "%H:%M:%S", ltime);
-
-    // UDP is protocol 17
+	/* UDP is protocol 17 */
 	if (ip->proto == 17) {
-	    /* print timestamp and length of the packet */
-        printf("%s\tSeen war3 broadcast\n", timestr);
-
-        for (i = 0; i < subs_len; i++) {
-            // set destination MAC address
-            for (j = 0; j < MAC_ADDR_OCTETS; j++)
-                ether->dmac[j] = subscribers[i][j];
-            pcap_sendpacket(adhandle, pkt_data, header->len);
-        }
-
+		printf("%s\tSeen war3 broadcast\n", timestr);
+		/* Send the war3 broadcast to all subscribers */
+		for (i = 0; i < num_subs; i++) {
+			/* Set destination MAC address */
+			copy_octets(ether->dst, subscribers[i], MAC_ADDR_OCTETS);
+			/* Inject the modified packet back to the device */
+			pcap_sendpacket(capture, pkt_data, header->len);
+		}
 	} else {
-        uint8_t matches;
+		/* Loop through all the existing subscriber MACs and check for duplicates */
+		for (i = 0; i < num_subs; i++) {
+			if (equal_octets(subscribers[i], ether->src, MAC_ADDR_OCTETS))
+				return;
+		}
+		/* Save the MAC address of the source of the ICMP echo request */
+		copy_octets(subscribers[num_subs], ether->src, MAC_ADDR_OCTETS);
+		num_subs++;
 
-        // loop through all the existing subscriber MACs and check for duplicates
-	    for (i = 0; i < subs_len; i++) {
-	        matches = 0;
-	        for (j = 0; j < MAC_ADDR_OCTETS; j++) {
-	            if (subscribers[i][j] == ether->smac[j])
-                    matches++;
-	        }
-	        // if all six octets match, this is a duplicate
-	        // no need to add it, just return.
-	        if (matches == MAC_ADDR_OCTETS)
-                return;
-	    }
-
-        for (j = 0; j < MAC_ADDR_OCTETS; j++)
-            subscribers[subs_len][j] = ether->smac[j];
-        subs_len++;
-        printf("%s\tAdded %02X:%02X:%02X:%02X:%02X:%02X to list\n", timestr,
-               ether->smac[0], ether->smac[1], ether->smac[2],
-               ether->smac[3], ether->smac[4], ether->smac[5]);
+		printf("%s\tAdded %02X:%02X:%02X:%02X:%02X:%02X to list\n", timestr,
+			   ether->src[0], ether->src[1], ether->src[2],
+			   ether->src[3], ether->src[4], ether->src[5]);
 	}
 }
