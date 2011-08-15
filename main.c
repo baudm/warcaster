@@ -114,9 +114,9 @@ int main(void)
 		fprintf(stderr, "\nWARNING: %s\n", errbuf);
 
 	if (capture == NULL) {
-		fprintf(stderr, "\nUnable to open the capture. It is not supported by libpcap/WinPcap.\n");
-		pcap_freealldevs(alldevs);
-		return -1;
+		fprintf(stderr, "\nUnable to open the device. It is not supported by libpcap/WinPcap.\n");
+		ret = -1;
+		goto free_alldevs;
 	}
 
 	/* Check the link layer. We support only Ethernet for simplicity. */
@@ -144,8 +144,6 @@ int main(void)
 	}
 
 	printf("\nListening on %s...\n", (dev->description) ? dev->description : dev->name);
-	/* alldevs is no longer needed at this point */
-	pcap_freealldevs(alldevs);
 
 	/* Make Ctrl-C break the loop so that we can still cleanup before terminating */
 	signal(SIGINT, break_loop);
@@ -156,6 +154,8 @@ int main(void)
 	/* cleanup */
 close_handle:
 	pcap_close(capture);
+free_alldevs:
+	pcap_freealldevs(alldevs);
 
 	return ret;
 }
