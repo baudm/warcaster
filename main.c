@@ -162,26 +162,6 @@ pcap_if_t *select_dev(pcap_if_t *alldevs)
 	return dev;
 }
 
-void copy_octets(uint8_t dst[], const uint8_t src[], uint8_t octets)
-{
-	uint8_t i;
-
-	for (i = 0; i < octets; i++)
-		dst[i] = src[i];
-}
-
-int equal_octets(const uint8_t a[], const uint8_t b[], uint8_t octets)
-{
-	uint8_t i, matches = 0;
-
-	for (i = 0; i < octets; i++) {
-		if (a[i] == b[i])
-			matches++;
-	}
-
-	return matches == octets;
-}
-
 /* Callback function invoked by libpcap for every incoming packet */
 void packet_handler(uint8_t *param, const struct pcap_pkthdr *header, const uint8_t *pkt_data)
 {
@@ -201,11 +181,11 @@ void packet_handler(uint8_t *param, const struct pcap_pkthdr *header, const uint
 		return;
 
 	/* frame header */
-	struct ether_header_t *ether = (struct ether_header_t *)pkt_data;
+	struct ether_header_t *ether;
 	uint8_t i;
 
 	struct tm *ltime = localtime(&header->ts.tv_sec);
-	char timestr[16];
+	char timestr[9];
 
 	/* convert the timestamp to readable format */
 	strftime(timestr, sizeof timestr, "%H:%M:%S", ltime);
@@ -223,18 +203,19 @@ void packet_handler(uint8_t *param, const struct pcap_pkthdr *header, const uint
 		/* Send the war3 broadcast to all subscribers */
 		for (i = 0; i < num_subs; i++) {
 			/* Set destination MAC address */
-			copy_octets(ether->dst, subscribers[i], MAC_ADDR_OCTETS);
+			memcpy(ether->dst, subscribers[i], MAC_ADDR_OCTETS);
 			/* Inject the modified packet back to the device */
 			pcap_sendpacket(capture, new_pkt_data, header->len);
 		}
 	} else {
+		ether = (struct ether_header_t *)pkt_data;
 		/* Loop through all the existing subscriber MACs and check for duplicates */
 		for (i = 0; i < num_subs; i++) {
-			if (equal_octets(subscribers[i], ether->src, MAC_ADDR_OCTETS))
+			if (memcmp(subscribers[i], ether->src, MAC_ADDR_OCTETS) == 0)
 				return;
 		}
 		/* Save the MAC address of the source of the ICMP echo request */
-		copy_octets(subscribers[num_subs], ether->src, MAC_ADDR_OCTETS);
+		memcpy(subscribers[num_subs], ether->src, MAC_ADDR_OCTETS);
 		num_subs++;
 
 		printf("%s\tAdded %02X:%02X:%02X:%02X:%02X:%02X to list\n", timestr,
