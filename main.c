@@ -209,7 +209,7 @@ void packet_handler(uint8_t *param, const struct pcap_pkthdr *header, const uint
 	static uint8_t num_subs = 0;
 
 	/* get pointer to the IP header */
-	struct ip_header_t *ip = (struct ip_header_t *)(pkt_data + sizeof(struct ether_header_t));
+	struct ip_header_t *ip = (struct ip_header_t *)(pkt_data + sizeof (struct ether_header_t));
 	/* calculate the IP header length */
 	uint32_t ip_len = (ip->ver_ihl & 0xF) * 4;
 	/* get pointer to the ICMP header (ICMP packets only) */
@@ -222,12 +222,10 @@ void packet_handler(uint8_t *param, const struct pcap_pkthdr *header, const uint
 	/* frame header */
 	struct ether_header_t *ether;
 	uint8_t i;
-
-	struct tm *ltime = localtime(&header->ts.tv_sec);
 	char timestr[9];
 
 	/* convert the timestamp to readable format */
-	strftime(timestr, sizeof timestr, "%H:%M:%S", ltime);
+	strftime(timestr, sizeof timestr, "%H:%M:%S", localtime(&header->ts.tv_sec));
 
 	if (ip->proto == UDP) {
 		/* Use a VLA to hold the data of the modified packet */
